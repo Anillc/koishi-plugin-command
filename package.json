@@ -1,0 +1,13 @@
+{
+  "name": "koishi-plugin-command",
+  "version": "0.0.1",
+  "main": "lib/index.js",
+  "author": "Anillc <void@anillc.cn>",
+  "license": "MIT",
+  "files": [
+    "lib"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.12.2"
+  }
+}
