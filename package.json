@@ -9,5 +9,8 @@
   ],
   "peerDependencies": {
     "koishi": "^4.12.2"
+  },
+  "dependencies": {
+    "iberis": "^0.0.2"
   }
 }
