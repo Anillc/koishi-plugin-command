@@ -1,5 +1,5 @@
-import { Grammar, accept, s } from 'iberis'
-import { Argv, Computed, Context, Schema } from 'koishi'
+import { Grammar, accept, s, Productor, Input } from 'iberis'
+import { Argv, Computed, Context, Logger, Schema, segment } from 'koishi'
 
 interface Config {
   prefix: Computed<string[]>
@@ -10,6 +10,8 @@ export const name = 'command'
 export const Config: Schema<Config> = Schema.object({
   prefix: Schema.computed(Schema.array(Schema.string())),
 })
+
+const logger = new Logger('command')
 
 export function apply(ctx: Context, config: Config) {
   let grammar = update(ctx)
@@ -38,7 +40,7 @@ export function apply(ctx: Context, config: Config) {
         return '未找到指令或指令格式错误。'
       }
     }
-    const argv: Argv = { args: [], options: {} }
+    const argv: Argv = { args: [], options: {}, session }
     accept(nodes[0], argv)
     return session.execute(argv)
   })
@@ -70,8 +72,9 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
       } else {
         g.p(`${name}_args_${i}`).n(`${name}_args_${i}_factor`)
       }
-      g.p(`${name}_args_${i}_factor`).t(fromType(argument.type))
-        .bind(({ text }, argv) => argv.args.push(text))
+      addTypeTerm(g.p(`${name}_args_${i}_factor`), argument.type, (value, argv) => {
+        argv.args.push(value)
+      })
     }
     g.p(`${name}_options`).n(`${name}_options`).n(`${name}_option`)
     g.p(`${name}_options`)
@@ -85,8 +88,9 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
           g.p(`${name}_option`).t(/-|(--)/).t(optionName)
             .bind((_1, _2, argv) => argv.options[decl.name] = true)
         }
-        g.p(`${name}_option`).t(/-|(--)/).t(optionName).t(fromType(decl.type))
-          .bind((_1, _2, { text }, argv) => argv.options[decl.name] = text)
+        addTypeTerm(g.p(`${name}_option`).t(/-|(--)/).t(optionName), decl.type, (value, argv) => {
+          argv.options[decl.name] = value
+        })
       }
     }
     for (const entry of Object.entries(cmd['_symbolicOptions'])) {
@@ -99,32 +103,72 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
           g.p(`${name}_option`).t(symbol)
             .bind((_, argv) => argv.options[decl.name] = true)
         }
-        g.p(`${name}_option`).t(symbol).t(fromType(decl.type))
-          .bind((_, { text }, argv) => argv.options[decl.name] = text)
+        addTypeTerm(g.p(`${name}_option`).t(symbol), decl.type, (value, argv) => {
+          argv[decl.name] = value
+        })
       }
     }
   }
   return g
 }
 
-function fromType(type: Argv.Type) {
-  if (type === undefined || type === 'string' || typeof type === 'function') {
-    return /\S+/
-  } else if (type === 'text' || type === 'rawtext') {
-    return /.+/
+function addTypeTerm<P extends unknown[]>(
+  productor: Productor<string | RegExp, Argv, P>,
+  type: Argv.Type,
+  accept: (value: any, argv: Argv) => void,
+) {
+  const resolver = (resolve: (text: string, argv: Argv, args: any[]) => any) => {
+    return (...args: any[]) => {
+      const { text } = args.at(-2)
+      const argv = args.at(-1)
+      accept(resolve(text, argv, args), argv)
+    }
+  }
+  if (!type || type === 'string') {
+    productor.t(/\S+/).bind(resolver((text) => segment.escape(text)))
+  } else if (typeof type === 'function') {
+    productor.t(/\S+/).bind(resolver((text, { session }) => type(text, session)))
+  } else if (type === 'text') {
+    productor.t(/.+/).bind(resolver((text) => segment.escape(text)))
+  } else if (type === 'rawtext') {
+    productor.t(/.+/).bind(resolver((text) => text))
   } else if (type === 'number') {
-    return /[+-]?\d+(\.\d*)?/
+    // negative is conflict with option
+    // set it as a standalone term
+    productor.t(/[+-]?/).t(/\d+(\.\d+)?/).bind(resolver((text, _, args) => {
+      return args.at(-3).text === '-' ? -text : +text
+    }))
   } else if (type === 'natural' || type === 'integer') {
-    return /[+-]?\d+/
+    productor.t(/[+-]?/).t(/\d+/).bind(resolver((text, _, args) => {
+      return args.at(-3).text === '-' ? -text : +text
+    }))
   } else if (type === 'posint') {
-    return /\+?\d+/
+    productor.t(/\+?\d+/).bind(resolver((text) => +text))
   } else if (type === 'user') {
-    return /@\S+/
+    productor.t(/@\S+/).bind(resolver((text, { session }) => {
+      const segments = text.substring(1).split(':')
+      if (segments.length >= 2) {
+        return segments.join(':')
+      } else if (segments.length !== 0) {
+        return `${session.platform}:${segments[0]}`
+      } else {
+        throw new Error('invalid user type')
+      }
+    }))
   } else if (type === 'channel') {
-    return /#\S+/
+    productor.t(/#\S+/).bind(resolver((text, { session }) => {
+      const segments = text.substring(1).split(':')
+      if (segments.length >= 2) {
+        return segments.join(':')
+      } else if (segments.length !== 0) {
+        return `${session.platform}:${segments[0]}`
+      } else {
+        throw new Error('invalid channel type')
+      }
+    }))
   } else if (type instanceof RegExp) {
-    return type
+    productor.t(type).bind(resolver((text) => text))
   } else {
-    throw new Error(`${type}: currently not supported`)
+    logger.warn(`${type}: currently not supported`)
   }
 }
