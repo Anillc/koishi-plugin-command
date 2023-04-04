@@ -1,5 +1,6 @@
 {
   "name": "koishi-plugin-command",
+  "description": "更好的指令解析！（逃",
   "version": "0.0.1",
   "main": "lib/index.js",
   "author": "Anillc <void@anillc.cn>",

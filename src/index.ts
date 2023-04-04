@@ -1,57 +1,35 @@
-import { Grammar, accept, s, Productor, Input } from 'iberis'
-import { Argv, Computed, Context, Logger, Schema, segment } from 'koishi'
+import { Grammar, accept, s, Productor } from 'iberis'
+import { Argv, Context, Logger, segment } from 'koishi'
 
-interface Config {
-  prefix: Computed<string[]>
+declare module 'koishi' {
+  interface Events {
+    'command/grammar-update'(grammar: Grammar<string | RegExp, Argv>): void
+  }
 }
 
 export const name = 'command'
 
-export const Config: Schema<Config> = Schema.object({
-  prefix: Schema.computed(Schema.array(Schema.string())),
-})
-
 const logger = new Logger('command')
 
-export function apply(ctx: Context, config: Config) {
+export function apply(ctx: Context) {
   let grammar = update(ctx)
   ctx.on('command-added', () => grammar = update(ctx))
-  ctx.middleware((session, next) => {
-    const { content } = session
-    const prefixes = session.resolve(config.prefix)
-    let body: string
-    let bypass = false
-    if (!prefixes || prefixes.length === 0) {
-      body = content
-      bypass = true
-    } else {
-      for (const prefix of prefixes) {
-        if (content.startsWith(prefix)) {
-          body = content.substring(prefix.length)
-        }
-      }
-      if (!body) return next()
-    }
-    const nodes = grammar.parse(s.lexer(body), s.equals)
-    if (nodes.length !== 1) {
-      if (bypass) {
-        return next()
-      } else {
-        return '未找到指令或指令格式错误。'
-      }
-    }
-    const argv: Argv = { args: [], options: {}, session }
-    accept(nodes[0], argv)
-    return session.execute(argv)
-  })
+  ctx.before('attach', async (session) => {
+    if (session.argv.name || session.argv.command) return
+    const { parsed } = session
+    const nodes = grammar.parse(s.lexer(parsed.content), s.equals)
+    if (nodes.length !== 1) return
+    session.argv = { args: [], options: {}, session }
+    accept(nodes[0], session.argv)
+  }, true)
 }
 
 function update(ctx: Context): Grammar<string | RegExp, Argv> {
   const cmds = ctx.root.$commander._commands._commandList
-  const g = new Grammar<string | RegExp, Argv>('cmds')
+  const g = new Grammar<string | RegExp, Argv>('root')
   for (const cmd of cmds) {
     const { name } = cmd
-    g.p('cmds').n(name)
+    g.p('root').n(name)
     g.p(name).t(name).n(`${name}_command`)
       .bind((_1, _2, argv) => argv.name = name)
     for (const alias of cmd._aliases) {
@@ -109,6 +87,7 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
       }
     }
   }
+  ctx.emit('command/grammar-update', g)
   return g
 }
 
