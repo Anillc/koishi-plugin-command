@@ -17,7 +17,10 @@ export function apply(ctx: Context) {
   ctx.before('attach', async (session) => {
     if (session.argv.name || session.argv.command) return
     const { parsed } = session
-    const nodes = grammar.parse(s.lexer(parsed.content), s.equals)
+    const content = parsed.prefix
+      ? parsed.content.slice(parsed.prefix.length)
+      : parsed.content
+    const nodes = grammar.parse(s.lexer(content), s.equals)
     if (nodes.length !== 1) return
     session.argv = { args: [], options: {}, session }
     accept(nodes[0], session.argv)
