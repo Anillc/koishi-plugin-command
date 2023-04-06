@@ -17,6 +17,10 @@ export function apply(ctx: Context) {
   ctx.before('attach', async (session) => {
     if (session.argv.name || session.argv.command) return
     const { parsed } = session
+    if (parsed.prefix === null && !parsed.appel && !parsed.hasMention) {
+      const prefixes = session.resolve(ctx.root.config.prefix)
+      if (prefixes.length !== 0) return
+    }
     const content = parsed.prefix
       ? parsed.content.slice(parsed.prefix.length)
       : parsed.content
