@@ -21,9 +21,12 @@ export function apply(ctx: Context) {
       const prefixes = session.resolve(ctx.root.config.prefix)
       if (prefixes.length !== 0) return
     }
-    const content = parsed.prefix
+    let content = parsed.prefix
       ? parsed.content.slice(parsed.prefix.length)
       : parsed.content
+    if (session.quote) {
+      content += ` '${session.quote.content.replace(/'/g, "\\'")}'`
+    }
     try {
       const nodes = grammar.parse(s.lexer(content), s.equals)
       if (nodes.length !== 1) return
@@ -75,7 +78,8 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
         g.p(`${name}_args_${i}`).n(`${name}_args_${i}_factor`)
       }
       addTypeTerm(g, g.p(`${name}_args_${i}_factor`), argument.type, (value, argv) => {
-        argv.args.push(value)
+        // TODO: check prior arg
+        argv.args[i] = value
       })
     }
     g.p(`${name}_options`).n(`${name}_options`).n(`${name}_option`)
@@ -115,6 +119,7 @@ function update(ctx: Context): Grammar<string | RegExp, Argv> {
   return g
 }
 
+// TODO: add quote for all types
 function addTypeTerm<P extends unknown[]>(
   g: Grammar<string | RegExp, Argv>,
   productor: Productor<string | RegExp, Argv, P>,
